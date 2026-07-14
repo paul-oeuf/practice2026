@@ -1,0 +1,12 @@
+C:\Users\HP\practice2026\task01\bin\Debug\net10.0\task01.deps.json
+C:\Users\HP\practice2026\task01\bin\Debug\net10.0\task01.dll
+C:\Users\HP\practice2026\task01\bin\Debug\net10.0\task01.pdb
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\task01.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\task01.AssemblyInfoInputs.cache
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\task01.AssemblyInfo.cs
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\task01.csproj.CoreCompileInputs.cache
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\task01.sourcelink.json
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\task01.dll
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\refint\task01.dll
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\task01.pdb
+C:\Users\HP\practice2026\task01\obj\Debug\net10.0\ref\task01.dll
