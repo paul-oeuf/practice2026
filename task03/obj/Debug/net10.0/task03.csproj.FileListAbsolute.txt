@@ -1,0 +1,12 @@
+C:\Users\HP\practice2026\task03\bin\Debug\net10.0\task03.deps.json
+C:\Users\HP\practice2026\task03\bin\Debug\net10.0\task03.dll
+C:\Users\HP\practice2026\task03\bin\Debug\net10.0\task03.pdb
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\task03.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\task03.AssemblyInfoInputs.cache
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\task03.AssemblyInfo.cs
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\task03.csproj.CoreCompileInputs.cache
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\task03.sourcelink.json
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\task03.dll
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\refint\task03.dll
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\task03.pdb
+C:\Users\HP\practice2026\task03\obj\Debug\net10.0\ref\task03.dll
