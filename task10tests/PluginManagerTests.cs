@@ -1,3 +1,4 @@
+using System.Reflection;
 using task10;
 
 namespace task10tests;
@@ -8,14 +9,41 @@ public class PluginManagerTests
     [Fact]
     public void PluginLoadAttribute_ShouldExist()
     {
-        var attribute =
-            typeof(TestPlugin)
+        var attributes =
+            typeof(MainPlugin)
             .GetCustomAttributes(
                 typeof(PluginLoadAttribute),
                 false);
 
 
-        Assert.Single(attribute);
+        Assert.Single(attributes);
+    }
+
+
+
+    [Fact]
+    public void DependencyAttribute_ShouldBeDetected()
+    {
+        var attributes =
+            typeof(MainPlugin)
+            .GetCustomAttributes(
+                typeof(PluginDependencyAttribute),
+                false);
+
+
+        Assert.Single(attributes);
+
+
+        var dependency =
+            attributes[0] as PluginDependencyAttribute;
+
+
+        Assert.NotNull(dependency);
+
+
+        Assert.Equal(
+            nameof(BasePlugin),
+            dependency.DependencyName);
     }
 
 
@@ -24,7 +52,7 @@ public class PluginManagerTests
     public void Plugin_ShouldHaveExecuteMethod()
     {
         var method =
-            typeof(TestPlugin)
+            typeof(MainPlugin)
             .GetMethod("Execute");
 
 
@@ -35,7 +63,19 @@ public class PluginManagerTests
 
 
 [PluginLoad]
-public class TestPlugin
+public class BasePlugin
+{
+    public void Execute()
+    {
+
+    }
+}
+
+
+
+[PluginLoad]
+[PluginDependency(nameof(BasePlugin))]
+public class MainPlugin
 {
     public void Execute()
     {
