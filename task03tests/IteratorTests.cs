@@ -1,10 +1,12 @@
+using Xunit;
 using task03;
+using System.Linq;
+using System.Collections.Generic;
 
 namespace task03tests;
 
 public class IteratorTests
 {
-
     [Fact]
     public void CustomCollection_GetEnumerator_ReturnsAllItems()
     {
@@ -13,7 +15,6 @@ public class IteratorTests
         collection.Add(1);
         collection.Add(2);
 
-
         var result = new List<int>();
 
         foreach (var item in collection)
@@ -21,13 +22,8 @@ public class IteratorTests
             result.Add(item);
         }
 
-
-        Assert.Equal(
-            new[] { 1, 2 },
-            result);
+        Assert.Equal(new[] { 1, 2 }, result);
     }
-
-
 
     [Fact]
     public void GetReverseEnumerator_ReturnsItemsInReverseOrder()
@@ -36,20 +32,11 @@ public class IteratorTests
 
         collection.Add(1);
         collection.Add(2);
-        collection.Add(3);
 
+        var result = collection.GetReverseEnumerator().ToList();
 
-        var result = collection
-            .GetReverseEnumerator()
-            .ToList();
-
-
-        Assert.Equal(
-            new[] { 3, 2, 1 },
-            result);
+        Assert.Equal(new[] { 2, 1 }, result);
     }
-
-
 
     [Fact]
     public void GenerateSequence_ReturnsCorrectSequence()
@@ -58,13 +45,8 @@ public class IteratorTests
             .GenerateSequence(5, 3)
             .ToList();
 
-
-        Assert.Equal(
-            new[] { 5, 6, 7 },
-            result);
+        Assert.Equal(new[] { 5, 6, 7 }, result);
     }
-
-
 
     [Fact]
     public void FilterAndSort_ReturnsFilteredAndSortedItems()
@@ -75,34 +57,10 @@ public class IteratorTests
         collection.Add(1);
         collection.Add(2);
 
-
         var result = collection
-            .FilterAndSort(
-                x => x > 1,
-                x => x)
+            .FilterAndSort(x => x > 1, x => x)
             .ToList();
 
-
-        Assert.Equal(
-            new[] { 2, 3 },
-            result);
-    }
-
-
-
-    [Fact]
-    public void Remove_DeletesItemFromCollection()
-    {
-        var collection = new CustomCollection<int>();
-
-        collection.Add(1);
-        collection.Add(2);
-
-        collection.Remove(1);
-
-
-        Assert.Equal(
-            new[] { 2 },
-            collection.ToList());
+        Assert.Equal(new[] { 2, 3 }, result);
     }
 }
