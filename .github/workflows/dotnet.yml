@@ -1,31 +1,35 @@
-name: .NET CI
+name: .NET
 
 on:
   push:
     branches:
-      - main
-      - task11
-
+      - task13
   pull_request:
     branches:
       - main
 
-jobs:
+permissions:
+  contents: read
 
+jobs:
   build:
 
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
-    - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
 
-    - uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 10.0.x
+      - name: Restore dependencies
+        run: dotnet restore practice2026.slnx
 
-    - run: dotnet restore
+      - name: Build
+        run: dotnet build practice2026.slnx --configuration Release --no-restore
 
-    - run: dotnet build --no-restore
-
-    - run: dotnet test --no-build
+      - name: Test
+        run: dotnet test practice2026.slnx --configuration Release --no-build --verbosity normal
