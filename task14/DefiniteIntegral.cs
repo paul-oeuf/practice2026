@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using System;
 using System.Threading;
 
 namespace task14;
@@ -12,181 +12,111 @@ public static class DefiniteIntegral
         double step,
         int threadsNumber)
     {
-        ArgumentNullException.ThrowIfNull(function);
+        if (function is null)
+            throw new ArgumentNullException(nameof(function));
 
-        if (!double.IsFinite(a))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(a),
-                "Левая граница должна быть конечным числом.");
-        }
-
-        if (!double.IsFinite(b))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(b),
-                "Правая граница должна быть конечным числом.");
-        }
-
-        if (!double.IsFinite(step) || step <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(step),
-                "Шаг должен быть положительным конечным числом.");
-        }
+        if (step <= 0)
+            throw new ArgumentOutOfRangeException(nameof(step));
 
         if (threadsNumber <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(threadsNumber),
-                "Количество потоков должно быть положительным.");
-        }
+            throw new ArgumentOutOfRangeException(nameof(threadsNumber));
 
         if (a == b)
-        {
             return 0.0;
+
+        if (b < a)
+        {
+            return -Solve(
+                b,
+                a,
+                function,
+                step,
+                threadsNumber);
         }
 
-        var sign = 1.0;
+        var segments =
+            (long)Math.Ceiling((b - a) / step);
 
-        if (a > b)
+        var actualStep =
+            (b - a) / segments;
+
+        var partialSums =
+            new double[threadsNumber];
+
+        var barrier =
+            new Barrier(threadsNumber);
+
+        var threads =
+            new Thread[threadsNumber];
+
+        for (
+            int threadIndex = 0;
+            threadIndex < threadsNumber;
+            threadIndex++)
         {
-            (a, b) = (b, a);
-            sign = -1.0;
-        }
+            var localIndex = threadIndex;
 
-        var segmentLength = (b - a) / threadsNumber;
-        var sharedResult = 0.0;
-
-        using var barrier = new Barrier(threadsNumber + 1);
-
-        var threads = new Thread[threadsNumber];
-        var exceptions = new ConcurrentQueue<Exception>();
-
-        for (var threadIndex = 0;
-             threadIndex < threadsNumber;
-             threadIndex++)
-        {
-            var index = threadIndex;
-
-            var segmentStart =
-                a + index * segmentLength;
-
-            var segmentEnd =
-                index == threadsNumber - 1
-                    ? b
-                    : a + (index + 1) * segmentLength;
-
-            threads[index] = new Thread(() =>
-            {
-                try
+            threads[localIndex] =
+                new Thread(() =>
                 {
-                    var partialResult = CalculateSegment(
-                        segmentStart,
-                        segmentEnd,
-                        function,
-                        step);
+                    var startSegment =
+                        segments
+                        * localIndex
+                        / threadsNumber;
 
-                    AddAtomically(
-                        ref sharedResult,
-                        partialResult);
-                }
-                catch (Exception exception)
-                {
-                    exceptions.Enqueue(exception);
-                }
-                finally
-                {
+                    var endSegment =
+                        segments
+                        * (localIndex + 1)
+                        / threadsNumber;
+
+                    var localResult = 0.0;
+
+                    for (
+                        long segment = startSegment;
+                        segment < endSegment;
+                        segment++)
+                    {
+                        var x1 =
+                            a + segment * actualStep;
+
+                        var x2 =
+                            x1 + actualStep;
+
+                        localResult +=
+                            (
+                                function(x1)
+                                + function(x2)
+                            )
+                            * actualStep
+                            / 2.0;
+                    }
+
+                    partialSums[localIndex] =
+                        localResult;
+
                     barrier.SignalAndWait();
-                }
-            });
+                });
 
-            threads[index].Start();
+            threads[localIndex].Start();
         }
-
-        barrier.SignalAndWait();
 
         foreach (var thread in threads)
         {
             thread.Join();
         }
 
-        if (!exceptions.IsEmpty)
-        {
-            throw new AggregateException(exceptions);
-        }
+        barrier.Dispose();
 
-        return sign * sharedResult;
-    }
-
-    private static double CalculateSegment(
-        double start,
-        double end,
-        Func<double, double> function,
-        double step)
-    {
         var result = 0.0;
-        var current = start;
 
-        while (current < end)
+        for (
+            int i = 0;
+            i < partialSums.Length;
+            i++)
         {
-            var next = Math.Min(
-                current + step,
-                end);
-
-            var width = next - current;
-
-            if (width <= 0)
-            {
-                throw new InvalidOperationException(
-                    "Невозможно продолжить вычисление.");
-            }
-
-            var leftValue = function(current);
-            var rightValue = function(next);
-
-            ValidateFunctionValue(leftValue);
-            ValidateFunctionValue(rightValue);
-
-            result +=
-                width *
-                (leftValue + rightValue) /
-                2.0;
-
-            current = next;
+            result += partialSums[i];
         }
 
         return result;
-    }
-
-    private static void AddAtomically(
-        ref double sharedValue,
-        double value)
-    {
-        double initialValue;
-        double computedValue;
-
-        do
-        {
-            initialValue = sharedValue;
-
-            computedValue =
-                initialValue + value;
-        }
-        while (
-            Interlocked.CompareExchange(
-                ref sharedValue,
-                computedValue,
-                initialValue) != initialValue);
-    }
-
-    private static void ValidateFunctionValue(
-        double value)
-    {
-        if (!double.IsFinite(value))
-        {
-            throw new InvalidOperationException(
-                "Функция вернула нечисловое или бесконечное значение.");
-        }
     }
 }
