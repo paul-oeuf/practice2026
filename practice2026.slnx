@@ -1,4 +1,10 @@
 <Solution>
   <Project Path="task11/task11.csproj" />
   <Project Path="task11tests/task11tests.csproj" />
+  <Project Path="task14/task14.csproj" />
+  <Project Path="task14tests/task14tests.csproj" />
+  <Project Path="task17/task17.csproj" />
+  <Project Path="task17tests/task17tests.csproj" />
+  <Project Path="task18report/task18report.csproj" />
+  <Project Path="task19report/task19report.csproj" />
 </Solution>

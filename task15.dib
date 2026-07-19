@@ -1,0 +1,519 @@
+#!markdown
+# Задача 15. Определение оптимальных параметров алгоритма вычисления определенного интеграла
+
+Исследование выполняется для функции sin(x) на отрезке [-100; 100].
+
+#!csharp
+#r "task14/bin/Release/net10.0/task14.dll"
+#r "nuget:ScottPlot, 5.1.59"
+
+using System;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using task14;
+
+Console.WriteLine("Загрузка библиотек завершена.");
+
+#!markdown
+## 1. Проверка алгоритма
+
+#!csharp
+var X =
+    (double x) => x;
+
+var SIN =
+    (double x) => Math.Sin(x);
+
+var test1 =
+    DefiniteIntegral.Solve(
+        -1,
+        1,
+        X,
+        1e-4,
+        2);
+
+var test2 =
+    DefiniteIntegral.Solve(
+        -1,
+        1,
+        SIN,
+        1e-5,
+        8);
+
+var test3 =
+    DefiniteIntegral.Solve(
+        0,
+        5,
+        X,
+        1e-6,
+        8);
+
+if (Math.Abs(test1) > 1e-4)
+    throw new Exception("Test 1 failed");
+
+if (Math.Abs(test2) > 1e-4)
+    throw new Exception("Test 2 failed");
+
+if (Math.Abs(test3 - 12.5) > 1e-5)
+    throw new Exception("Test 3 failed");
+
+Console.WriteLine("Контрольные тесты выполнены успешно.");
+
+#!markdown
+## 2. Параметры эксперимента
+
+#!csharp
+const double A = -100.0;
+const double B = 100.0;
+
+const double Accuracy = 1e-4;
+
+const int Repeats = 5;
+
+var Function =
+    (double x) => Math.Sin(x);
+
+var CandidateSteps =
+    new[]
+    {
+        1e-1,
+        1e-2,
+        1e-3,
+        1e-4,
+        1e-5,
+        1e-6
+    };
+
+var ExpectedIntegral =
+    -Math.Cos(B) + Math.Cos(A);
+
+#!markdown
+## 3. Вспомогательные типы и функции измерения
+
+#!csharp
+public record StepMeasurement(
+    double Step,
+    double Result,
+    double Error,
+    double AverageMilliseconds);
+
+public record ThreadMeasurement(
+    int Threads,
+    double AverageMilliseconds);
+
+static double MeasureAverageMilliseconds(
+    Func<double> calculation,
+    int repeats)
+{
+    calculation();
+
+    var times =
+        new double[repeats];
+
+    for (
+        int i = 0;
+        i < repeats;
+        i++)
+    {
+        var stopwatch =
+            Stopwatch.StartNew();
+
+        calculation();
+
+        stopwatch.Stop();
+
+        times[i] =
+            stopwatch.Elapsed.TotalMilliseconds;
+    }
+
+    return times.Average();
+}
+
+#!markdown
+## 4. Определение минимального размера шага
+
+Для каждого размера шага выполняется несколько замеров.
+
+Точность определяется по абсолютной погрешности относительно аналитического значения интеграла.
+
+#!csharp
+var StepMeasurements =
+    new List<StepMeasurement>();
+
+foreach (var step in CandidateSteps)
+{
+    var result =
+        0.0;
+
+    var averageMilliseconds =
+        MeasureAverageMilliseconds(
+            () =>
+            {
+                result =
+                    DefiniteIntegral.Solve(
+                        A,
+                        B,
+                        Function,
+                        step,
+                        2);
+
+                return result;
+            },
+            Repeats);
+
+    var error =
+        Math.Abs(
+            result - ExpectedIntegral);
+
+    StepMeasurements.Add(
+        new StepMeasurement(
+            step,
+            result,
+            error,
+            averageMilliseconds));
+}
+
+foreach (var item in StepMeasurements)
+{
+    Console.WriteLine(
+        $"Step = {item.Step:E} | " +
+        $"Result = {item.Result:F15} | " +
+        $"Error = {item.Error:E} | " +
+        $"Average time = {item.AverageMilliseconds:F3} ms");
+}
+
+#!csharp
+var OptimalStepMeasurement =
+    StepMeasurements
+        .Where(
+            item =>
+                item.Error <= Accuracy)
+        .OrderBy(
+            item =>
+                item.Step)
+        .First();
+
+var OptimalStep =
+    OptimalStepMeasurement.Step;
+
+Console.WriteLine();
+
+Console.WriteLine(
+    $"Минимальный размер шага: {OptimalStep:E}");
+
+Console.WriteLine(
+    $"Абсолютная погрешность: " +
+    $"{OptimalStepMeasurement.Error:E}");
+
+Console.WriteLine(
+    $"Среднее время: " +
+    $"{OptimalStepMeasurement.AverageMilliseconds:F3} мс");
+
+#!markdown
+## 5. Подбор оптимального количества потоков
+
+Для выбранного размера шага проверяются различные количества потоков.
+
+Каждый вариант измеряется несколько раз.
+
+#!csharp
+var ThreadCandidates =
+    new SortedSet<int>
+    {
+        1
+    };
+
+for (
+    int threads = 2;
+    threads <= Environment.ProcessorCount;
+    threads *= 2)
+{
+    ThreadCandidates.Add(
+        threads);
+}
+
+ThreadCandidates.Add(
+    Environment.ProcessorCount);
+
+var ThreadMeasurements =
+    new List<ThreadMeasurement>();
+
+foreach (var threads in ThreadCandidates)
+{
+    var averageMilliseconds =
+        MeasureAverageMilliseconds(
+            () =>
+                DefiniteIntegral.Solve(
+                    A,
+                    B,
+                    Function,
+                    OptimalStep,
+                    threads),
+            Repeats);
+
+    ThreadMeasurements.Add(
+        new ThreadMeasurement(
+            threads,
+            averageMilliseconds));
+}
+
+foreach (
+    var item in ThreadMeasurements
+        .OrderBy(item => item.Threads))
+{
+    Console.WriteLine(
+        $"Threads = {item.Threads} | " +
+        $"Average time = " +
+        $"{item.AverageMilliseconds:F3} ms");
+}
+
+#!csharp
+var OptimalThreadMeasurement =
+    ThreadMeasurements
+        .OrderBy(
+            item =>
+                item.AverageMilliseconds)
+        .First();
+
+var OptimalThreads =
+    OptimalThreadMeasurement.Threads;
+
+Console.WriteLine();
+
+Console.WriteLine(
+    $"Оптимальное количество потоков: " +
+    $"{OptimalThreads}");
+
+Console.WriteLine(
+    $"Среднее время многопоточной версии: " +
+    $"{OptimalThreadMeasurement.AverageMilliseconds:F3} мс");
+
+#!markdown
+## 6. Построение графика
+
+По оси OX отображается время вычисления Solve.
+
+По оси OY отображается количество потоков.
+
+#!csharp
+var plot =
+    new ScottPlot.Plot();
+
+var sortedThreadMeasurements =
+    ThreadMeasurements
+        .OrderBy(
+            item =>
+                item.Threads)
+        .ToList();
+
+var plotX =
+    sortedThreadMeasurements
+        .Select(
+            item =>
+                item.AverageMilliseconds)
+        .ToArray();
+
+var plotY =
+    sortedThreadMeasurements
+        .Select(
+            item =>
+                (double)item.Threads)
+        .ToArray();
+
+plot.Add.Scatter(
+    plotX,
+    plotY);
+
+plot.Title(
+    "Производительность многопоточного вычисления интеграла");
+
+plot.XLabel(
+    "Время вычисления Solve, мс");
+
+plot.YLabel(
+    "Количество потоков");
+
+plot.SavePng(
+    "task15-thread-performance.png",
+    1200,
+    700);
+
+Console.WriteLine(
+    "График сохранён в task15-thread-performance.png");
+
+plot
+
+#!markdown
+## 7. Сравнение с однопоточной реализацией
+
+Однопоточная реализация является отдельным алгоритмом.
+
+Она не использует потоки.
+
+#!csharp
+var SingleThreadMilliseconds =
+    MeasureAverageMilliseconds(
+        () =>
+            SingleThreadDefiniteIntegral.Solve(
+                A,
+                B,
+                Function,
+                OptimalStep),
+        Repeats);
+
+var MultiThreadMilliseconds =
+    OptimalThreadMeasurement.AverageMilliseconds;
+
+var SpeedupPercent =
+    (
+        SingleThreadMilliseconds
+        - MultiThreadMilliseconds
+    )
+    / SingleThreadMilliseconds
+    * 100.0;
+
+Console.WriteLine();
+
+Console.WriteLine(
+    $"Среднее время однопоточной версии: " +
+    $"{SingleThreadMilliseconds:F3} мс");
+
+Console.WriteLine(
+    $"Среднее время многопоточной версии: " +
+    $"{MultiThreadMilliseconds:F3} мс");
+
+Console.WriteLine(
+    $"Ускорение многопоточной версии: " +
+    $"{SpeedupPercent:F2}%");
+
+#!markdown
+## 8. Сохранение результатов в текстовый файл
+
+#!csharp
+var Report =
+    new StringBuilder();
+
+Report.AppendLine(
+    "Задача 15. Определение оптимальных параметров алгоритма вычисления определенного интеграла");
+
+Report.AppendLine();
+
+Report.AppendLine(
+    "Исследуемая функция: sin(x).");
+
+Report.AppendLine(
+    "Отрезок интегрирования: [-100; 100].");
+
+Report.AppendLine(
+    $"Требуемая точность: {Accuracy:E}.");
+
+Report.AppendLine(
+    $"Количество повторов каждого замера: {Repeats}.");
+
+Report.AppendLine();
+
+Report.AppendLine(
+    "Исследование размера шага:");
+
+Report.AppendLine(
+    "Размер шага | Результат | Абсолютная погрешность | Среднее время, мс");
+
+foreach (var item in StepMeasurements)
+{
+    Report.AppendLine(
+        $"{item.Step:E} | " +
+        $"{item.Result:F15} | " +
+        $"{item.Error:E} | " +
+        $"{item.AverageMilliseconds:F3}");
+}
+
+Report.AppendLine();
+
+Report.AppendLine(
+    $"Минимальный размер шага, обеспечивающий точность {Accuracy:E}: " +
+    $"{OptimalStep:E}.");
+
+Report.AppendLine(
+    $"Абсолютная погрешность при выбранном шаге: " +
+    $"{OptimalStepMeasurement.Error:E}.");
+
+Report.AppendLine();
+
+Report.AppendLine(
+    "Исследование количества потоков:");
+
+Report.AppendLine(
+    "Количество потоков | Среднее время Solve, мс");
+
+foreach (
+    var item in ThreadMeasurements
+        .OrderBy(item => item.Threads))
+{
+    Report.AppendLine(
+        $"{item.Threads} | " +
+        $"{item.AverageMilliseconds:F3}");
+}
+
+Report.AppendLine();
+
+Report.AppendLine(
+    $"Оптимальное количество потоков: {OptimalThreads}.");
+
+Report.AppendLine(
+    $"Среднее время многопоточной версии: " +
+    $"{MultiThreadMilliseconds:F3} мс.");
+
+Report.AppendLine(
+    $"Среднее время однопоточной версии: " +
+    $"{SingleThreadMilliseconds:F3} мс.");
+
+Report.AppendLine(
+    $"Разница в скорости: " +
+    $"{SpeedupPercent:F2}% в пользу многопоточной версии.");
+
+Report.AppendLine();
+
+Report.AppendLine(
+    "Все замеры выполнены с использованием Stopwatch.");
+
+Report.AppendLine(
+    "Средние значения рассчитаны по нескольким запускам.");
+
+Report.AppendLine(
+    "График сохранён в task15-thread-performance.png.");
+
+File.WriteAllText(
+    "task15-results.txt",
+    Report.ToString(),
+    Encoding.UTF8);
+
+Console.WriteLine();
+
+Console.WriteLine(
+    "Результаты сохранены в task15-results.txt");
+
+Console.WriteLine();
+
+Console.WriteLine(
+    Report.ToString());
+
+#!markdown
+## 9. Итоговая проверка
+
+#!csharp
+if (SpeedupPercent < 15.0)
+{
+    throw new Exception(
+        $"Требование задания не выполнено. " +
+        $"Ускорение составляет {SpeedupPercent:F2}%, " +
+        $"что меньше 15%.");
+}
+
+Console.WriteLine(
+    "Все критерии эксперимента выполнены.");
+
+Console.WriteLine(
+    "Многопоточная версия быстрее однопоточной более чем на 15%.");
