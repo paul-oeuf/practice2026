@@ -268,6 +268,109 @@ public class ServerThreadTests
             server.IsRunning);
     }
 
+    [Fact]
+    public void Task19_ShouldExecuteFiveLongCommandsThreeTimes()
+    {
+        var scheduler = new RoundRobinScheduler();
+
+        using var server =
+            new ServerThread(scheduler);
+
+        var executionLog =
+            new ConcurrentQueue<string>();
+
+        const int commandCount = 5;
+        const int executionsPerCommand = 3;
+
+        for (var i = 1; i <= commandCount; i++)
+        {
+            scheduler.Add(
+                new TestCommand(
+                    i,
+                    scheduler,
+                    executionsPerCommand,
+                    executionLog));
+        }
+
+        server.Start();
+
+        Assert.True(
+            SpinWait.SpinUntil(
+                () =>
+                    executionLog.Count ==
+                    commandCount * executionsPerCommand,
+                TimeSpan.FromSeconds(2)));
+
+        server.Enqueue(
+            new HardStop(server));
+
+        server.Join();
+
+        Assert.Equal(
+            commandCount * executionsPerCommand,
+            executionLog.Count);
+
+        for (var i = 1; i <= commandCount; i++)
+        {
+            Assert.Equal(
+                executionsPerCommand,
+                executionLog.Count(
+                    item =>
+                        item.StartsWith(
+                            $"Поток {i} вызов")));
+        }
+    }
+
+    [Fact]
+    public void Task19_ShouldExecuteCommandsInRoundRobinOrder()
+    {
+        var scheduler = new RoundRobinScheduler();
+
+        using var server =
+            new ServerThread(scheduler);
+
+        var executionLog =
+            new ConcurrentQueue<string>();
+
+        scheduler.Add(
+            new TestCommand(
+                1,
+                scheduler,
+                3,
+                executionLog));
+
+        scheduler.Add(
+            new TestCommand(
+                2,
+                scheduler,
+                3,
+                executionLog));
+
+        server.Start();
+
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => executionLog.Count == 6,
+                TimeSpan.FromSeconds(2)));
+
+        server.Enqueue(
+            new HardStop(server));
+
+        server.Join();
+
+        Assert.Equal(
+            new[]
+            {
+                "Поток 1 вызов 1",
+                "Поток 2 вызов 1",
+                "Поток 1 вызов 2",
+                "Поток 2 вызов 2",
+                "Поток 1 вызов 3",
+                "Поток 2 вызов 3"
+            },
+            executionLog.ToArray());
+    }
+
     private sealed class ActionCommand : ICommand
     {
         private readonly Action _action;
@@ -306,6 +409,43 @@ public class ServerThreadTests
         public void Execute()
         {
             _executionOrder.Enqueue(_name);
+
+            if (Interlocked.Decrement(
+                    ref _remainingExecutions) > 0)
+            {
+                _scheduler.Add(this);
+            }
+        }
+    }
+
+    private sealed class TestCommand : ICommand
+    {
+        private readonly int _id;
+        private readonly IScheduler _scheduler;
+        private readonly ConcurrentQueue<string> _executionLog;
+
+        private int _counter;
+        private int _remainingExecutions;
+
+        public TestCommand(
+            int id,
+            IScheduler scheduler,
+            int executions,
+            ConcurrentQueue<string> executionLog)
+        {
+            _id = id;
+            _scheduler = scheduler;
+            _remainingExecutions = executions;
+            _executionLog = executionLog;
+        }
+
+        public void Execute()
+        {
+            var currentCall =
+                Interlocked.Increment(ref _counter);
+
+            _executionLog.Enqueue(
+                $"Поток {_id} вызов {currentCall}");
 
             if (Interlocked.Decrement(
                     ref _remainingExecutions) > 0)
