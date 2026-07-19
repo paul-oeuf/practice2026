@@ -4,28 +4,32 @@ on:
   push:
     branches:
       - main
-      - task11
-
+      - task15
+      - task17
   pull_request:
     branches:
       - main
+      - task15
+      - task17
 
 jobs:
-
-  build:
-
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - uses: actions/checkout@v4
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
-    - uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 10.0.x
+      - name: Restore dependencies
+        run: dotnet restore practice2026.slnx
 
-    - run: dotnet restore
+      - name: Build solution
+        run: dotnet build practice2026.slnx --configuration Release --no-restore
 
-    - run: dotnet build --no-restore
-
-    - run: dotnet test --no-build
+      - name: Run tests
+        run: dotnet test practice2026.slnx --configuration Release --no-build
