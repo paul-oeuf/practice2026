@@ -1,31 +1,26 @@
+using System.Collections.Concurrent;
 using task17;
-using Xunit;
 
 namespace task17tests;
 
-public sealed class ServerThreadTests
+public class ServerThreadTests
 {
     [Fact]
     public void HardStop_ShouldStopProcessingRemainingCommands()
     {
         using var server = new ServerThread();
 
-        var executedCommands = new List<int>();
+        var executed = new ConcurrentQueue<int>();
 
         server.Enqueue(
             new ActionCommand(
-                () => executedCommands.Add(1)));
+                () => executed.Enqueue(1)));
 
-        server.Enqueue(
-            new HardStop(server));
-
-        server.Enqueue(
-            new ActionCommand(
-                () => executedCommands.Add(2)));
+        server.Enqueue(new HardStop(server));
 
         server.Enqueue(
             new ActionCommand(
-                () => executedCommands.Add(3)));
+                () => executed.Enqueue(2)));
 
         server.Start();
 
@@ -33,7 +28,7 @@ public sealed class ServerThreadTests
 
         Assert.Equal(
             new[] { 1 },
-            executedCommands);
+            executed.ToArray());
     }
 
     [Fact]
@@ -41,52 +36,37 @@ public sealed class ServerThreadTests
     {
         using var server = new ServerThread();
 
-        var executedCommands = new List<int>();
+        var executed = new ConcurrentQueue<int>();
 
         server.Enqueue(
             new ActionCommand(
-                () => executedCommands.Add(1)));
+                () => executed.Enqueue(1)));
 
-        server.Enqueue(
-            new SoftStop(server));
-
-        server.Enqueue(
-            new ActionCommand(
-                () => executedCommands.Add(2)));
+        server.Enqueue(new SoftStop(server));
 
         server.Enqueue(
             new ActionCommand(
-                () => executedCommands.Add(3)));
+                () => executed.Enqueue(2)));
 
         server.Start();
 
         server.Join();
 
         Assert.Equal(
-            new[] { 1, 2, 3 },
-            executedCommands);
+            new[] { 1, 2 },
+            executed.ToArray());
     }
 
     [Fact]
-    public void HardStop_ShouldThrowWhenExecutedOutsideTargetThread()
+    public void StopCommands_ShouldRejectExecutionOutsideTargetThread()
     {
         using var server = new ServerThread();
 
-        var command = new HardStop(server);
+        Assert.Throws<InvalidOperationException>(
+            () => new HardStop(server).Execute());
 
         Assert.Throws<InvalidOperationException>(
-            command.Execute);
-    }
-
-    [Fact]
-    public void SoftStop_ShouldThrowWhenExecutedOutsideTargetThread()
-    {
-        using var server = new ServerThread();
-
-        var command = new SoftStop(server);
-
-        Assert.Throws<InvalidOperationException>(
-            command.Execute);
+            () => new SoftStop(server).Execute());
     }
 
     [Fact]
@@ -94,62 +74,198 @@ public sealed class ServerThreadTests
     {
         using var server = new ServerThread();
 
-        var executedCount = 0;
+        var count = 0;
 
-        const int commandsCount = 1000;
+        const int commandCount = 1000;
 
-        for (int i = 0; i < commandsCount; i++)
+        for (var i = 0; i < commandCount; i++)
         {
             server.Enqueue(
                 new ActionCommand(
-                    () => Interlocked.Increment(
-                        ref executedCount)));
+                    () => Interlocked.Increment(ref count)));
         }
 
-        server.Enqueue(
-            new SoftStop(server));
+        server.Enqueue(new SoftStop(server));
 
         server.Start();
 
         server.Join();
 
         Assert.Equal(
-            commandsCount,
-            executedCount);
+            commandCount,
+            count);
     }
 
     [Fact]
     public void ServerThread_ShouldPassCommandExceptionToExceptionHandler()
     {
-        Exception? receivedException = null;
+        using var received = new ManualResetEventSlim();
 
         ICommand? receivedCommand = null;
+        Exception? receivedException = null;
 
         using var server = new ServerThread(
-            (exception, command) =>
+            (command, exception) =>
             {
-                receivedException = exception;
                 receivedCommand = command;
+                receivedException = exception;
+
+                received.Set();
             });
 
-        var command = new ActionCommand(
-            () => throw new InvalidOperationException(
-                "Test exception"));
+        var commandToFail =
+            new ActionCommand(
+                () => throw new InvalidOperationException("test"));
 
-        server.Enqueue(command);
+        server.Enqueue(commandToFail);
 
-        server.Enqueue(
-            new SoftStop(server));
+        server.Enqueue(new SoftStop(server));
 
         server.Start();
 
         server.Join();
 
-        Assert.NotNull(receivedException);
+        Assert.True(
+            received.Wait(TimeSpan.FromSeconds(1)));
 
         Assert.Same(
-            command,
+            commandToFail,
             receivedCommand);
+
+        Assert.IsType<InvalidOperationException>(
+            receivedException);
+    }
+
+    [Fact]
+    public void RoundRobinScheduler_ShouldSelectCommandsCyclically()
+    {
+        var scheduler = new RoundRobinScheduler();
+
+        var first =
+            new ActionCommand(() => { });
+
+        var second =
+            new ActionCommand(() => { });
+
+        scheduler.Add(first);
+        scheduler.Add(second);
+
+        Assert.Same(
+            first,
+            scheduler.Select());
+
+        Assert.Same(
+            second,
+            scheduler.Select());
+
+        scheduler.Add(first);
+        scheduler.Add(second);
+
+        Assert.Same(
+            first,
+            scheduler.Select());
+
+        Assert.Same(
+            second,
+            scheduler.Select());
+
+        Assert.False(
+            scheduler.HasCommand());
+    }
+
+    [Fact]
+    public void ServerThread_ShouldExecuteLongCommandsInRoundRobinOrder()
+    {
+        var scheduler = new RoundRobinScheduler();
+
+        using var server =
+            new ServerThread(scheduler);
+
+        var executionOrder =
+            new ConcurrentQueue<string>();
+
+        var first =
+            new LongCommand(
+                "A",
+                scheduler,
+                3,
+                executionOrder);
+
+        var second =
+            new LongCommand(
+                "B",
+                scheduler,
+                3,
+                executionOrder);
+
+        scheduler.Add(first);
+        scheduler.Add(second);
+
+        server.Start();
+
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => executionOrder.Count == 6,
+                TimeSpan.FromSeconds(2)));
+
+        server.Enqueue(
+            new SoftStop(server));
+
+        server.Join();
+
+        Assert.Equal(
+            new[]
+            {
+                "A",
+                "B",
+                "A",
+                "B",
+                "A",
+                "B"
+            },
+            executionOrder.ToArray());
+    }
+
+    [Fact]
+    public void ServerThread_ShouldWakeWhenNewCommandArrivesAfterIdle()
+    {
+        using var server = new ServerThread();
+
+        using var executed =
+            new ManualResetEventSlim();
+
+        server.Start();
+
+        Assert.True(
+            server.IsRunning);
+
+        server.Enqueue(
+            new ActionCommand(
+                () => executed.Set()));
+
+        Assert.True(
+            executed.Wait(TimeSpan.FromSeconds(1)));
+
+        server.Enqueue(
+            new SoftStop(server));
+
+        server.Join();
+    }
+
+    [Fact]
+    public void Dispose_ShouldStopIdleServerThread()
+    {
+        using var server = new ServerThread();
+
+        server.Start();
+
+        Assert.True(
+            server.IsRunning);
+
+        server.Dispose();
+
+        Assert.False(
+            server.IsRunning);
     }
 
     private sealed class ActionCommand : ICommand
@@ -164,6 +280,38 @@ public sealed class ServerThreadTests
         public void Execute()
         {
             _action();
+        }
+    }
+
+    private sealed class LongCommand : ICommand
+    {
+        private readonly string _name;
+        private readonly IScheduler _scheduler;
+        private readonly ConcurrentQueue<string> _executionOrder;
+
+        private int _remainingExecutions;
+
+        public LongCommand(
+            string name,
+            IScheduler scheduler,
+            int executions,
+            ConcurrentQueue<string> executionOrder)
+        {
+            _name = name;
+            _scheduler = scheduler;
+            _remainingExecutions = executions;
+            _executionOrder = executionOrder;
+        }
+
+        public void Execute()
+        {
+            _executionOrder.Enqueue(_name);
+
+            if (Interlocked.Decrement(
+                    ref _remainingExecutions) > 0)
+            {
+                _scheduler.Add(this);
+            }
         }
     }
 }

@@ -5,22 +5,39 @@ namespace task17;
 public sealed class ServerThread : IDisposable
 {
     private readonly BlockingCollection<ICommand> _commands = new();
-
     private readonly Thread _thread;
-
-    private readonly Action<Exception, ICommand>? _exceptionHandler;
-
-    private int _threadId;
+    private readonly IScheduler _scheduler;
+    private readonly Action<ICommand, Exception>? _exceptionHandler;
 
     private int _started;
-
-    private int _hardStopRequested;
-
     private int _disposed;
+    private int _hardStopRequested;
+    private int _softStopRequested;
+
+    public ServerThread()
+        : this(new RoundRobinScheduler(), null)
+    {
+    }
 
     public ServerThread(
-        Action<Exception, ICommand>? exceptionHandler = null)
+        Action<ICommand, Exception>? exceptionHandler)
+        : this(new RoundRobinScheduler(), exceptionHandler)
     {
+    }
+
+    public ServerThread(IScheduler scheduler)
+        : this(scheduler, null)
+    {
+    }
+
+    public ServerThread(
+        IScheduler scheduler,
+        Action<ICommand, Exception>? exceptionHandler)
+    {
+        _scheduler =
+            scheduler ??
+            throw new ArgumentNullException(nameof(scheduler));
+
         _exceptionHandler = exceptionHandler;
 
         _thread = new Thread(Run)
@@ -30,19 +47,19 @@ public sealed class ServerThread : IDisposable
         };
     }
 
-    public bool IsRunning =>
-        _thread.IsAlive;
+    public IScheduler Scheduler => _scheduler;
 
-    public int ThreadId =>
-        Volatile.Read(ref _threadId);
+    public bool IsRunning => _thread.IsAlive;
+
+    public int ThreadId => _thread.ManagedThreadId;
 
     public void Start()
     {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
 
-        if (Interlocked.Exchange(
-                ref _started,
-                1) != 0)
+        if (Interlocked.Exchange(ref _started, 1) != 0)
         {
             throw new InvalidOperationException(
                 "ServerThread уже был запущен.");
@@ -55,115 +72,146 @@ public sealed class ServerThread : IDisposable
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        ThrowIfDisposed();
-
-        if (_commands.IsAddingCompleted)
-        {
-            throw new InvalidOperationException(
-                "Добавление команд завершено.");
-        }
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
 
         _commands.Add(command);
     }
 
     public void Join()
     {
-        ThrowIfDisposed();
+        if (Volatile.Read(ref _started) == 0)
+        {
+            throw new InvalidOperationException(
+                "ServerThread еще не был запущен.");
+        }
 
         _thread.Join();
     }
 
-    internal bool IsCurrentThread =>
-        Thread.CurrentThread.ManagedThreadId == ThreadId;
-
     internal void RequestHardStop()
     {
-        if (!IsCurrentThread)
-        {
-            throw new InvalidOperationException(
-                "Команда HardStop должна выполняться в останавливаемом потоке.");
-        }
+        EnsureWorkerThread();
 
-        Volatile.Write(
-            ref _hardStopRequested,
-            1);
+        Volatile.Write(ref _hardStopRequested, 1);
 
         _commands.CompleteAdding();
     }
 
     internal void RequestSoftStop()
     {
-        if (!IsCurrentThread)
-        {
-            throw new InvalidOperationException(
-                "Команда SoftStop должна выполняться в останавливаемом потоке.");
-        }
+        EnsureWorkerThread();
+
+        Volatile.Write(ref _softStopRequested, 1);
 
         _commands.CompleteAdding();
     }
 
+    private void EnsureWorkerThread()
+    {
+        if (Thread.CurrentThread.ManagedThreadId != ThreadId)
+        {
+            throw new InvalidOperationException(
+                "Команда остановки должна выполняться " +
+                "в целевом ServerThread.");
+        }
+    }
+
     private void Run()
     {
-        Volatile.Write(
-            ref _threadId,
-            Thread.CurrentThread.ManagedThreadId);
+        var preferQueue = true;
 
-        try
+        while (true)
         {
-            foreach (var command in _commands.GetConsumingEnumerable())
+            if (Volatile.Read(ref _hardStopRequested) != 0)
             {
-                try
-                {
-                    command.Execute();
-                }
-                catch (Exception exception)
-                {
-                    _exceptionHandler?.Invoke(
-                        exception,
-                        command);
-                }
-
-                if (Volatile.Read(
-                        ref _hardStopRequested) != 0)
-                {
-                    break;
-                }
+                return;
             }
-        }
-        catch (ObjectDisposedException)
-        {
-            if (Volatile.Read(ref _disposed) == 0)
+
+            if (preferQueue &&
+                _commands.TryTake(out var command))
             {
-                throw;
+                ExecuteCommand(command);
+
+                preferQueue = false;
+
+                continue;
+            }
+
+            if (!preferQueue &&
+                _scheduler.HasCommand())
+            {
+                ExecuteCommand(_scheduler.Select());
+
+                preferQueue = true;
+
+                continue;
+            }
+
+            if (!preferQueue &&
+                _commands.TryTake(out command))
+            {
+                ExecuteCommand(command);
+
+                preferQueue = false;
+
+                continue;
+            }
+
+            if (preferQueue &&
+                _scheduler.HasCommand())
+            {
+                ExecuteCommand(_scheduler.Select());
+
+                preferQueue = true;
+
+                continue;
+            }
+
+            if (Volatile.Read(ref _softStopRequested) != 0)
+            {
+                return;
+            }
+
+            if (_commands.TryTake(out command, 50))
+            {
+                ExecuteCommand(command);
+
+                preferQueue = false;
             }
         }
     }
 
-    private void ThrowIfDisposed()
+    private void ExecuteCommand(ICommand command)
     {
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
+        try
+        {
+            command.Execute();
+        }
+        catch (Exception exception)
+        {
+            _exceptionHandler?.Invoke(
+                command,
+                exception);
+        }
     }
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(
-                ref _disposed,
-                1) != 0)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        try
+        if (Volatile.Read(ref _started) != 0)
         {
-            _commands.CompleteAdding();
-        }
-        catch (ObjectDisposedException)
-        {
+            Volatile.Write(ref _hardStopRequested, 1);
         }
 
-        if (_thread.IsAlive &&
+        _commands.CompleteAdding();
+
+        if (Volatile.Read(ref _started) != 0 &&
             Thread.CurrentThread != _thread)
         {
             _thread.Join();

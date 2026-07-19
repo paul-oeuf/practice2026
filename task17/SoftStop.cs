@@ -6,9 +6,9 @@ public sealed class SoftStop : ICommand
 
     public SoftStop(ServerThread serverThread)
     {
-        ArgumentNullException.ThrowIfNull(serverThread);
-
-        _serverThread = serverThread;
+        _serverThread =
+            serverThread ??
+            throw new ArgumentNullException(nameof(serverThread));
     }
 
     public void Execute()

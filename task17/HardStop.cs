@@ -6,9 +6,9 @@ public sealed class HardStop : ICommand
 
     public HardStop(ServerThread serverThread)
     {
-        ArgumentNullException.ThrowIfNull(serverThread);
-
-        _serverThread = serverThread;
+        _serverThread =
+            serverThread ??
+            throw new ArgumentNullException(nameof(serverThread));
     }
 
     public void Execute()
